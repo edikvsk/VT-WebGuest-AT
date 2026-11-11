@@ -1,0 +1,169 @@
+import configparser
+import os
+import time
+
+import pytest
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.wait import WebDriverWait
+
+from pages.base_page import BasePage
+from pages.desktop_app_page import DesktopAppPage
+from pages.web_guest_page import WebGuestPage
+from utils.config import CONFIG_INI, PROCESS_PATH, SOURCE_TO_PUBLISHING
+from utils.conftest import driver, modified_fixture
+from utils.desktop_app import DesktopApp
+from utils.helpers import log_step
+from utils.logger_config import setup_logger
+
+
+@pytest.fixture(scope="function")
+def logger(caplog):
+    test_name = os.path.splitext(os.path.basename(__file__))[0]
+    logger = setup_logger(test_name)
+    return logger
+
+
+@pytest.mark.usefixtures("modified_fixture")
+def test_security_account_connection_limit(driver, logger):
+    config_file_path = CONFIG_INI
+    config = configparser.ConfigParser()
+    config.read(config_file_path)
+    web_guest_url = config['DEFAULT']['WEB_GUEST_PAGE_URL'].strip()
+
+    base_page = BasePage(driver)
+    wg_page = WebGuestPage(driver)
+    desktop_app = DesktopApp(PROCESS_PATH)
+    desktop_app_page = DesktopAppPage(desktop_app.main_window)
+
+    vt_input_source_name = SOURCE_TO_PUBLISHING
+    login = "test_login"
+    password = "test_password"
+    expected_notification_text = "Can't connect: connection limit exceeded"
+
+    @log_step(logger, "Отключение anonymous access VT Security Settings")
+    def check_vt_anonymous_access_state_on():
+        expected_value = 0  # Состояние кнопки (0 == False)
+        desktop_app_page.right_click_vt_source_item(vt_input_source_name)
+        desktop_app_page.click_vt_source_item(DesktopAppPage.VT_SECURITY_SETTINGS)
+        desktop_app_page.toggle_vt_wg_button(0)
+        actual_value = desktop_app_page.get_vt_wg_button_state(0)
+        assert actual_value == expected_value, f"Ожидалось значение '{expected_value}', но получено '{actual_value}'"
+
+    @log_step(logger, "Добавление Security Account")
+    def add_security_account():
+        start_time = wg_page.get_current_time_formatted()
+        expiration_time = wg_page.add_time(start_time, hours=5)
+        desktop_app_page.click_button_by_name("Add")
+        desktop_app_page.set_vt_wg_settings_field_value(0, login)
+        desktop_app_page.set_vt_wg_settings_field_value(1, password)
+        desktop_app_page.set_vt_wg_settings_field_value(2, 1)
+        desktop_app_page.set_vt_wg_settings_field_value(3, start_time)
+        desktop_app_page.set_vt_wg_settings_field_value(4, expiration_time)
+        desktop_app_page.click_button_by_name("OK")
+
+    @log_step(logger, "Запуск первого экземпляра WG")
+    def start_first_web_guest(drv):
+        drv.get(web_guest_url)
+        expected_url = web_guest_url
+
+        current_url = drv.current_url
+        logger.info(f"Ожидаемый URL: {expected_url}, текущий URL: {current_url}")
+
+        assert current_url == expected_url, f"Ожидался URL: {expected_url}, но был: {current_url}"
+
+    @log_step(logger, "Проверка отображения Authorization Form")
+    def check_authorization_form():
+        assert base_page.is_element_visible(wg_page.AUTHORIZATION_FORM), "Authorization Form не отображается"
+
+    @log_step(logger, "Ожидание Authorization Form во втором окне (90 сек)")
+    def check_authorization_form_second_window():
+        assert base_page.is_element_visible(wg_page.AUTHORIZATION_FORM, timeout=90), \
+            "Authorization Form во втором окне не отображается за 90 секунд"
+
+    @log_step(logger, "Проверка отображения поля ввода Name")
+    def check_name_field():
+        assert base_page.is_element_visible(wg_page.SECURITY_NAME), "Поле Name не отображается"
+
+    @log_step(logger, "Проверка отображения поля ввода Login")
+    def check_login_field():
+        assert base_page.is_element_visible(wg_page.SECURITY_LOGIN), "Поле Login не отображается"
+
+    @log_step(logger, "Проверка отображения поля ввода Password")
+    def check_password_field():
+        assert base_page.is_element_visible(wg_page.SECURITY_PASSWORD), "Поле Password не отображается"
+
+    @log_step(logger, "Ввод значения в поле Name для первого экземпляра Chrome Web Guest")
+    def set_first_web_guest_name():
+        expected_value = "example"
+        wg_page.delete_text(wg_page.SECURITY_NAME)
+        wg_page.input_text(wg_page.SECURITY_NAME, "example")
+        actual_value = wg_page.get_input_value(wg_page.SECURITY_NAME)
+        assert actual_value == expected_value, f"Ожидалось значение '{expected_value}', но получено '{actual_value}'"
+
+    @log_step(logger, "Авторизация")
+    def authorization():
+        wg_page.input_text(wg_page.SECURITY_LOGIN, login)
+        wg_page.input_text(wg_page.SECURITY_PASSWORD, password)
+        wg_page.click(wg_page.SECURITY_CONNECT_BUTTON)
+
+    first_window = driver.current_window_handle
+    logger.info(f"Дескриптор второго окна: {first_window}")
+
+    @log_step(logger, "Запуск второго экземпляра Chrome Web Guest")
+    def start_second_web_guest(drv):
+        assert base_page.is_element_visible(wg_page.STOP_BUTTON, timeout=40), \
+            "Первое подключение не заняло connection slot за 40 секунд"
+        wg_page.release_local_media_tracks()
+        wg_page.open_new_tab()
+        expected_url = web_guest_url
+        drv.get(expected_url)
+        current_url = drv.current_url
+        logger.info(f"Ожидаемый URL: {expected_url}, текущий URL: {current_url}")
+
+        assert current_url == expected_url, f"Ожидался URL: {expected_url}, но был: {current_url}"
+
+    @log_step(logger, "Ввод значения в поле Name для второго экземпляра Chrome Web Guest")
+    def set_second_web_guest_name():
+        expected_value = "example2"
+        wg_page.delete_text(wg_page.SECURITY_NAME)
+        wg_page.input_text(wg_page.SECURITY_NAME, "example2")
+        actual_value = wg_page.get_input_value(wg_page.SECURITY_NAME)
+        assert actual_value == expected_value, f"Ожидалось значение '{expected_value}', но получено '{actual_value}'"
+
+    @log_step(logger, "Авторизация")
+    def authorization():
+        wg_page.input_text(wg_page.SECURITY_LOGIN, login)
+        wg_page.input_text(wg_page.SECURITY_PASSWORD, password)
+        wg_page.click(wg_page.SECURITY_CONNECT_BUTTON)
+
+    @log_step(logger, "Проверка отображения уведомлений")
+    def check_authorized_notification(drv):
+        try:
+            WebDriverWait(drv, 30).until(
+                EC.text_to_be_present_in_element(wg_page.NOTIFICATION_ELEMENT, expected_notification_text)
+            )
+            logger.info("Уведомление 'Can't connect: connection limit exceeded' успешно отображено.")
+        except TimeoutException:
+            logger.error("Уведомление 'Can't connect: connection limit exceeded' не отображается.")
+            pytest.fail("Уведомление 'Can't connect: connection limit exceeded' не отображается.")
+
+    try:
+        check_vt_anonymous_access_state_on()
+        add_security_account()
+        start_first_web_guest(driver)
+        check_authorization_form()
+        check_name_field()
+        check_login_field()
+        check_password_field()
+        set_first_web_guest_name()
+        authorization()
+        start_second_web_guest(driver)
+        check_authorization_form_second_window()
+        set_second_web_guest_name()
+        authorization()
+        check_authorized_notification(driver)
+
+    except (NoSuchElementException, TimeoutException) as e:
+        logger.error(f"Ошибка при выполнении теста: {e}")
+        pytest.fail(f"Ошибка при выполнении теста: {e}")
