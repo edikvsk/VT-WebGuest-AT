@@ -1,87 +1,48 @@
-# VT WebGuest Autotests
+# WebGuest test automation
 
-## Test Bot integration
+Автоматизированные smoke- и регрессионные проверки веб-интерфейса WebGuest и связанных сценариев Windows-приложения. Проект объединяет Selenium WebDriver, pytest и pywinauto; для работы с браузерными страницами используются Page Object.
 
-The Test Bot prepares this repository with the self-contained environment
-bootstrap:
+## Структура
 
-```powershell
-powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-  -File .\scripts\ensure_environment.ps1
-```
-
-For Video Transport, `run=all project=vt` runs both the VT wrapper tests and
-all WebGuest pytest tests. Use `type=webguest` to run only this repository.
-
-Every collected pytest node ID must contain a `VT####` YouTrack identity.
-Smoke tests that do not belong to another issue must use `VT1626` in both the
-test file and test function name. The Test Bot rejects unnumbered nodes during
-discovery.
-
-Автотесты для VT WebGuest с поддержкой автоматического определения медиа-устройств и конфигурации по машинам.
-
-## Быстрый старт
-
-### 1. Установка зависимостей
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
-```
-
-### 2. Настройка медиа-устройств
-Система автоматически определяет машину и загружает конфигурацию с `\\192.168.10.100\web\VT_WebGuest_config\appconfig.json`
-
-- **EDWARD** - использует устройства "Logi" (Logitech)  
-- **DEMOSTAND** - использует устройства "A4"
-- **DEFAULT** - для всех остальных машин используются устройства "A4"
-
-### 3. Запуск тестов
-```powershell
-# Один тест
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 -TestPath test\smoke\stream_controls\test_start_stream.py -v
-
-# Все тесты
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 -TestPath test\ -v
-```
-
-## Документация
-
-- **[Настройка медиа-устройств](docs/MEDIA_DEVICES.md)** - подробное руководство по настройке камеры и микрофона
-- **[Конфигурация](docs/CONFIGURATION.md)** - все переменные окружения и настройки
-- **[Скрипты и утилиты](docs/SCRIPTS.md)** - описание всех доступных скриптов
-- **[Архитектура проекта](docs/ARCHITECTURE.md)** - структура кода и принципы работы
-
-
-## Проверка работы
-
-```powershell
-# Проверить конфигурацию и определение машины
-py -3 -c "from utils.config_manager import config; config.print_config_summary()"
-
-# Проверить медиа-устройства
-python scripts\test_devices.py
-```
-
-## Структура проекта
-
-```
-vt_at_webguest/
-├── docs/                    # Документация
-├── scripts/                 # Скрипты установки и запуска
-├── test/                    # Тесты
-├── utils/                   # Утилиты и конфигурация
-├── pages/                   # Page Object Model
-└── logs/                    # Логи тестов
-```
-
-## Конфигурация машин
-
-Система автоматически определяет машину и загружает конфигурацию с `\\192.168.10.100\web\VT_WebGuest_config\appconfig.json`
+| Каталог | Содержимое |
+| --- | --- |
+| `test/smoke`, `test/regress` | Сценарии продукта |
+| `pages` | Объекты страниц и методы работы с Windows UI |
+| `utils` | Фикстуры, конфигурация, управление процессами и WebRTC |
+| `tests/unit`, `infrastructure_checks` | Проверки компонентов и инфраструктуры |
+| `scripts`, `docs` | Подготовка окружения, запуск и подробная документация |
 
 ## Требования
 
-- Windows 10/11
-- Python 3.8+
-- PowerShell 5.0+
-- Доступ к интернету (для скачивания зависимостей)
-- Доступ к \192.168.10.100
-- 2 Гб. свободного места на диске
+- Windows 10/11, Python 3 и PowerShell 5.1 или новее.
+- Установленное и настроенное приложение Video Transport; для полного UI-прогона нужен интерактивный пользовательский сеанс.
+- Совместимые Chrome и ChromeDriver; некоторые сценарии требуют камеры, микрофона, лицензии и доступных сетевых сервисов.
+- Пути, устройства и учётные данные зависят от окружения. Не сохраняйте реальные секреты, конфигурации, тестовые медиа и результаты прогонов в репозитории.
+
+## Подготовка и запуск
+
+Из корня репозитория:
+
+```powershell
+.\scripts\setup.ps1
+.\scripts\run.ps1 -TestPath 'test\smoke' -v
+.\scripts\run.ps1 -TestPath 'test\regress' -v
+.\scripts\run.ps1 -TestPath 'tests\unit' -q
+```
+
+`setup.ps1` создаёт `.venv`, устанавливает зависимости и запускает подготовку Chrome Beta и ChromeDriver; для скачивания нужен доступ в интернет. `run.ps1` использует Python из `.venv`, если окружение создано, иначе — `py -3`; дополнительные аргументы передаются pytest, а код завершения pytest возвращается вызывающему процессу. Скрипт также загружает `.tools/.env.browser.ps1`, если файл существует.
+
+UI-тесты управляют браузером и приложением на текущей машине. Перед полным прогоном проверьте пути, устройства и доступность тестового окружения. Для проверки инфраструктуры без запуска всех сценариев используйте `tests/unit`; отдельным проверкам всё равно могут требоваться зависимости Windows.
+
+## Конфигурация и диагностика
+
+- `VT_WEBGUEST_CONFIG_PATH` — путь к JSON-конфигурации машины. Если переменная не задана, используется существующий сетевой путь проекта; при недоступности конфигурации применяются предусмотренные кодом значения по умолчанию.
+- `VT_PROCESS_PATH`, `VT_INSTALL_ROOT`, `CHROME_BROWSER_PATH`, `CHROME_DRIVER_PATH`, `CAMERA_FOR_SELECTION`, `MIC_FOR_SELECTION` — примеры параметров окружения; полный список и порядок применения см. в [конфигурации](docs/CONFIGURATION.md).
+- При ошибках setup или выполнения браузерного теста `conftest.py` пытается сохранить скриншот, HTML и сведения о странице в `.test-results/`. Содержимое артефактов может включать данные страницы: храните их локально или в доверенном хранилище.
+- Локальные зависимости, конфигурации, логи и результаты исключены через `.gitignore`.
+
+## Интеграция с Test Bot
+
+Окружение подготавливается через `scripts/ensure_environment.ps1`. Для Video Transport команда `run=all project=vt` включает wrapper и WebGuest, а `type=webguest` запускает этот проект. Test Bot требует идентификатор `VT####` в node ID; для общих smoke-сценариев используется `VT1626` в имени файла и теста.
+
+Дополнительно: [архитектура](docs/ARCHITECTURE.md), [настройка устройств](docs/MEDIA_DEVICES.md), [скрипты](docs/SCRIPTS.md).

@@ -1,19 +1,29 @@
 #Requires -Version 5.1
 
 param(
-    [string]$TestPath = "-q"  # путь к тесту или параметры pytest
+    [string]$TestPath = "test",
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$PytestArgs
 )
 
 $ErrorActionPreference = "Stop"
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
+$browserEnv = Join-Path $projectRoot ".tools\.env.browser.ps1"
 
-# Активируем venv, если есть
-if (Test-Path "$PSScriptRoot/../.venv/Scripts/Activate.ps1") {
-    . "$PSScriptRoot/../.venv/Scripts/Activate.ps1"
+if (Test-Path -LiteralPath $browserEnv) {
+    . $browserEnv
 }
 
-# Запускаем pytest с переданными аргументами
-Write-Host "[Run] pytest $TestPath" -ForegroundColor Cyan
-Write-Host "[Run] Все тесты будут выполнены независимо от количества неудач (--maxfail=0)" -ForegroundColor Yellow
-py -3 -m pytest $TestPath
-
-
+Push-Location -LiteralPath $projectRoot
+try {
+    if (Test-Path -LiteralPath $venvPython) {
+        & $venvPython -m pytest $TestPath @PytestArgs
+    } else {
+        & py -3 -m pytest $TestPath @PytestArgs
+    }
+    $pytestExitCode = $LASTEXITCODE
+} finally {
+    Pop-Location
+}
+exit $pytestExitCode

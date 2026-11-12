@@ -70,7 +70,7 @@ def _cleanup_web_driver(web_driver, service, timeout=5):
                     pass
 
 
-@pytest.fixture(autouse=True, scope="function")
+@pytest.fixture(scope="function")
 def ensure_vt_killed_before_test():
     """Гарантированно закрывает VT перед каждым тестом, чтобы избежать зависаний на открытой вкладке."""
     pm = ProcessManager(PROCESS_PATH, PROCESS_NAME, PUBLISHER_XML_PATH)
@@ -82,6 +82,19 @@ def ensure_vt_killed_before_test():
         yield
     finally:
         pm.kill_process()
+
+
+@pytest.fixture(autouse=True, scope="function")
+def prepare_product_ui_test(request):
+    """Do not touch a user's running app for independent unit tests."""
+    product_tests = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "test"))
+    test_file = os.path.realpath(str(request.node.fspath))
+    try:
+        is_product_test = os.path.normcase(os.path.commonpath([product_tests, test_file])) == os.path.normcase(product_tests)
+    except ValueError:  # Different Windows drives cannot share a product test directory.
+        is_product_test = False
+    if is_product_test:
+        request.getfixturevalue("ensure_vt_killed_before_test")
 
 
 def _create_configured_web_driver(

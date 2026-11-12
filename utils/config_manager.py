@@ -472,7 +472,7 @@ class ConfigManager:
             self.logger.info(f"Определена машина: {machine_name}")
             
             # Путь к сетевой конфигурации
-            network_config_path = r"\\192.168.10.100\web\VT_WebGuest_config\appconfig.json"
+            network_config_path = os.getenv("VT_WEBGUEST_CONFIG_PATH") or r"\\192.168.10.100\web\VT_WebGuest_config\appconfig.json"
             
             # Загружаем конфигурацию только с сетевого пути
             machine_config = config_loader.load_config(network_config_path)
